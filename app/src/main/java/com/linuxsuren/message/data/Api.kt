@@ -27,14 +27,14 @@ data class MessageItem(
 ) {
     companion object {
         fun fromJson(o: JSONObject): MessageItem {
-            val level = o.optString("level", LEVEL_INFO)
+            val level = o.optString("level", MessageApi.LEVEL_INFO)
             return MessageItem(
                 id = o.optLong("id", 0),
                 tenantId = o.optLong("tenant_id", 0),
                 topic = o.optString("topic"),
                 title = o.optString("title"),
                 body = o.optString("body"),
-                level = if (level in LEVELS) level else LEVEL_INFO,
+                level = if (level in MessageApi.LEVELS) level else MessageApi.LEVEL_INFO,
                 isPublic = o.optBoolean("public", false),
                 createdAtMs = parseIso8601(o.optString("created_at")),
             )
@@ -129,7 +129,7 @@ class MessageApi(private val baseUrl: String) {
         const val LEVEL_INFO = "info"
         const val LEVEL_WARNING = "warning"
         const val LEVEL_ERROR = "error"
-        private val LEVELS = setOf(LEVEL_INFO, LEVEL_WARNING, LEVEL_ERROR)
+        val LEVELS = setOf(LEVEL_INFO, LEVEL_WARNING, LEVEL_ERROR)
 
         /** Parses the data payload of an SSE `message` event; null when malformed. */
         fun parseMessageEvent(data: String): MessageItem? = try {
