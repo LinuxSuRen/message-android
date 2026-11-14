@@ -39,6 +39,7 @@ class SseClient(
         fun onSseAuthError()
     }
 
+    @Volatile
     private var currentConn: HttpURLConnection? = null
 
     @Volatile

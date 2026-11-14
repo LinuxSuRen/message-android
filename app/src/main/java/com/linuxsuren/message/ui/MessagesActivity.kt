@@ -136,7 +136,12 @@ class MessagesActivity : Activity() {
             }
 
             override fun onSseConnected() {
-                runOnUiThread { binding.streamStatus.text = getString(R.string.sse_connected) }
+                runOnUiThread {
+                    binding.streamStatus.text = getString(R.string.sse_connected)
+                    // 断线重连成功后立即对账：SSE 每条消息只推一次，
+                    // 退避窗口内错过的消息需靠重新拉取补齐。
+                    reload()
+                }
             }
 
             override fun onSseRetryIn(seconds: Int) {
