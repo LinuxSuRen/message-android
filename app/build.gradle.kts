@@ -49,4 +49,9 @@ dependencies {
     // list widget, which ships only as an androidx artifact.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+
+    // Local unit tests only: org.json in android.jar is a stub that throws
+    // "not mocked"; this artifact mirrors the platform implementation.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
