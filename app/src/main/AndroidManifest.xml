@@ -30,6 +30,11 @@
             android:name=".ui.MessagesActivity"
             android:exported="false"
             android:launchMode="singleTop" />
+
+        <!-- Full-text view of one message; opened only from the list. -->
+        <activity
+            android:name=".ui.MessageDetailActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

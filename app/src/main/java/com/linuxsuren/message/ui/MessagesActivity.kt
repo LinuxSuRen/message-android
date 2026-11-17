@@ -16,7 +16,9 @@ import com.linuxsuren.message.MessageApp
 import com.linuxsuren.message.R
 import com.linuxsuren.message.data.ErrorKind
 import com.linuxsuren.message.data.HttpException
+import com.linuxsuren.message.data.LocalMessageState
 import com.linuxsuren.message.data.MessageApi
+import com.linuxsuren.message.data.MessageItem
 import com.linuxsuren.message.data.Settings
 import com.linuxsuren.message.data.SseClient
 import com.linuxsuren.message.databinding.ActivityMessagesBinding
@@ -45,6 +47,7 @@ class MessagesActivity : Activity() {
     private lateinit var settings: Settings
     private lateinit var api: MessageApi
     private lateinit var adapter: MessageAdapter
+    private lateinit var localState: LocalMessageState
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var loadJob: Job? = null
@@ -71,7 +74,16 @@ class MessagesActivity : Activity() {
         binding.headerAccount.text =
             getString(R.string.signed_in_as, settings.displayName.ifBlank { settings.email })
 
-        adapter = MessageAdapter()
+        localState = LocalMessageState(this)
+        adapter = MessageAdapter(localState)
+        adapter.onItemClick = { item ->
+            startActivity(
+                Intent(this, MessageDetailActivity::class.java).putExtras(
+                    MessageDetailActivity.args(item.id, item.title, item.body, item.createdAtMs)
+                )
+            )
+        }
+        adapter.onItemLongClick = { item -> showItemMenu(item) }
         binding.messageList.layoutManager = LinearLayoutManager(this)
         binding.messageList.adapter = adapter
 
@@ -83,6 +95,14 @@ class MessagesActivity : Activity() {
             }
             reload()
         }
+        binding.readGroup.setOnCheckedChangeListener { _, checkedId ->
+            adapter.readFilter = when (checkedId) {
+                R.id.read_filter_unread -> MessageAdapter.FILTER_UNREAD
+                R.id.read_filter_read -> MessageAdapter.FILTER_READ
+                else -> MessageAdapter.FILTER_ALL
+            }
+            updateEmptyHint()
+        }
         binding.refreshButton.setOnClickListener { reload() }
         binding.menuButton.setOnClickListener { showOverflowMenu() }
 
@@ -91,6 +111,15 @@ class MessagesActivity : Activity() {
         requestNotificationPermissionIfNeeded()
         reload()
         startStream()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Returning from the detail screen may have changed read/deleted state.
+        if (::adapter.isInitialized && ::localState.isInitialized) {
+            adapter.refreshAll()
+            updateEmptyHint()
+        }
     }
 
     override fun onDestroy() {
@@ -110,8 +139,7 @@ class MessagesActivity : Activity() {
                 val page = withContext(Dispatchers.IO) { api.listMessages(scope = currentScope) }
                 adapter.submit(page.items)
                 binding.listProgress.visibility = View.GONE
-                binding.emptyView.visibility =
-                    if (page.items.isEmpty()) View.VISIBLE else View.GONE
+                updateEmptyHint()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -163,7 +191,7 @@ class MessagesActivity : Activity() {
         }
         val item = MessageApi.parseMessageEvent(data) ?: return
         val inserted = adapter.prepend(item)
-        binding.emptyView.visibility = if (adapter.itemCount == 0) View.VISIBLE else View.GONE
+        updateEmptyHint()
         if (inserted) {
             if (MessageApp.isForeground) {
                 beep()
@@ -191,6 +219,55 @@ class MessagesActivity : Activity() {
         settings.clearSession()
         Toast.makeText(this, R.string.err_session_expired, Toast.LENGTH_LONG).show()
         goLogin()
+    }
+
+    /** Empty hint differs: truly no messages vs. none matching the read filter. */
+    private fun updateEmptyHint() {
+        binding.emptyView.setText(
+            if (adapter.itemCount == 0 && adapter.hasMasterItems()) {
+                R.string.list_empty_filtered
+            } else {
+                R.string.list_empty
+            }
+        )
+        binding.emptyView.visibility = if (adapter.itemCount == 0) View.VISIBLE else View.GONE
+    }
+
+    /** Long-press actions on a card: read toggle + local delete. */
+    private fun showItemMenu(item: MessageItem) {
+        val popup = PopupMenu(this, binding.messageList)
+        val read = localState.isRead(item.id)
+        popup.menu.add(0, MENU_MARK_READ, 0, R.string.action_mark_read).isEnabled = !read
+        popup.menu.add(0, MENU_MARK_UNREAD, 0, R.string.action_mark_unread).isEnabled = read
+        popup.menu.add(0, MENU_DELETE, 0, R.string.menu_delete)
+        popup.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.itemId) {
+                MENU_MARK_READ -> {
+                    localState.setRead(item.id, true)
+                    adapter.refreshItem(item.id)
+                    updateEmptyHint()
+                    true
+                }
+
+                MENU_MARK_UNREAD -> {
+                    localState.setRead(item.id, false)
+                    adapter.refreshItem(item.id)
+                    updateEmptyHint()
+                    true
+                }
+
+                MENU_DELETE -> {
+                    localState.setDeleted(item.id)
+                    adapter.removeById(item.id)
+                    updateEmptyHint()
+                    Toast.makeText(this, R.string.msg_deleted, Toast.LENGTH_SHORT).show()
+                    true
+                }
+
+                else -> false
+            }
+        }
+        popup.show()
     }
 
     private fun showOverflowMenu() {
@@ -237,5 +314,9 @@ class MessagesActivity : Activity() {
         private const val REQ_POST_NOTIFICATIONS = 1001
         private const val BEEP_VOLUME = 80
         private const val BEEP_MS = 120
+
+        private const val MENU_MARK_READ = 1
+        private const val MENU_MARK_UNREAD = 2
+        private const val MENU_DELETE = 3
     }
 }

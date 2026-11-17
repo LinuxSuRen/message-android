@@ -92,6 +92,37 @@
             android:text="@string/scope_public" />
     </RadioGroup>
 
+    <!-- Read-state filter (client-local read tracking) -->
+    <RadioGroup
+        android:id="@+id/read_group"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="2dp">
+
+        <RadioButton
+            android:id="@+id/read_filter_all"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="@string/read_filter_all" />
+
+        <RadioButton
+            android:id="@+id/read_filter_unread"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="@string/read_filter_unread" />
+
+        <RadioButton
+            android:id="@+id/read_filter_read"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="@string/read_filter_read" />
+    </RadioGroup>
+
     <!-- Live stream status -->
     <TextView
         android:id="@+id/stream_status"
