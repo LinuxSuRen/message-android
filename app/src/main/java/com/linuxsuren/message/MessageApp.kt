@@ -20,7 +20,7 @@ class MessageApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CookieHandler.setDefault(CookieManager())
-        Notifier.ensureChannel(this)
+        Notifier.ensureChannels(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
             override fun onActivityStarted(activity: Activity) {

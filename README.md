@@ -6,9 +6,12 @@
 
 - **登录即用**：填入服务端地址（支持内网 `http://`）+ 邮箱 + 密码即可，不保存密码，只保留 12 小时会话 Cookie。
 - **实时消息**：通过 [SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) 长连接接收推送，断线后指数退避自动重连（1s、2s、4s … 上限 60s）。
+- **后台常驻接收**：SSE 连接由前台服务承载（`dataSync` 类型 + 常驻低优先级通知），应用退到后台、熄屏仍实时收消息并弹系统通知；系统回收后 `START_STICKY` 自动拉起，重启手机（或应用更新）后开机自启恢复监听。会话过期时服务自动停止并发"请重新登录"通知。
 - **消息列表**：卡片式 RecyclerView，展示标题、正文摘要、topic、级别色点（info 灰绿 / warning 橙 / error 红）与相对时间；支持「全部 / 本租户 / 公开」三种范围筛选和手动刷新。
 - **后台通知**：应用不在前台时收到消息会发系统通知（Android 13+ 首次启动会申请通知权限），点击通知回到消息列表；前台则以轻提示音提醒。
 - **零重型依赖**：HTTP 用 `HttpURLConnection` 封装，JSON 用平台 `org.json`，界面为经典 Views + XML（ViewBinding）；除 Kotlin 协程与 RecyclerView 外无第三方库。
+
+> 提示：部分国产 ROM（小米/华为/OPPO/vivo 等）的省电策略可能仍会清理后台进程，需在系统设置中允许本应用「自启动」并加入电池优化白名单，后台接收才最稳定；进程被清理期间的消息不会丢失，重新打开应用时会自动补拉。
 
 ## 下载与安装
 
@@ -46,8 +49,8 @@
 ## 工作原理
 
 - **登录换会话**：`POST /api/v1/auth/login` 成功后服务端通过 `Set-Cookie` 下发 12 小时有效的 `mh_session` 会话；客户端用 `java.net.CookieManager`（设为进程默认 `CookieHandler`）统一保管，REST 请求与 SSE 流自动携带同一 Cookie。Cookie 值会存入 SharedPreferences 以便冷启动免登录，密码永不落盘；会话过期（SSE 或列表请求返回 401）时自动回到登录页。
-- **SSE 长连接 + 退避重连**：客户端对 `GET /api/v1/stream` 发起 `Accept: text/event-stream` 请求，逐行解析 `event:` / `data:`（多行 data 按 SSE 规范合并），忽略注释行；服务端约每 20 秒发一次 `heartbeat` 保活。连接中断后按 1s、2s、4s…（上限 60s）指数退避重连，曾经成功建立过的连接断开后重置为 1s 快速重连；遇到 401/403 则停止重试并要求重新登录。离开消息页时取消协程并断开连接。
-- **后台通知**：进程在前台时新消息插入列表顶部并播放一声轻提示；不在前台时（应用退到后台、进程仍存活）发系统通知，点击通知打开消息列表。注意：应用被系统杀死或被用户划掉后长连接随之断开，无法继续收消息——这是无前台服务设计的有意取舍。
+- **SSE 长连接 + 退避重连**：SSE 连接由前台服务 `MessageStreamService` 独占持有（`foregroundServiceType="dataSync"`，常驻低优先级通知展示连接状态），界面上只剩列表与状态消费方。客户端对 `GET /api/v1/stream` 发起 `Accept: text/event-stream` 请求，逐行解析 `event:` / `data:`（多行 data 按 SSE 规范合并），忽略注释行；服务端约每 20 秒发一次 `heartbeat` 保活。连接中断后按 1s、2s、4s…（上限 60s）指数退避重连，曾经成功建立过的连接断开后重置为 1s 快速重连；遇到 401/403 则清理会话、停止服务并发"请重新登录"通知。服务以 `START_STICKY` 运行，系统回收后自动重启；`BootReceiver` 在开机（BOOT_COMPLETED）与应用更新（MY_PACKAGE_REPLACED）后检测到已保存的服务地址与会话即自动拉起服务。
+- **前后台分发**：服务解析出消息后经进程内 `MessageBus`（SharedFlow）广播；前台时 `MessagesActivity` 插入列表顶部并播放一声轻提示，不在前台时服务直接发系统通知，点击通知打开消息列表。界面销毁不影响后台接收；重连成功与界面重建时自动对账补拉错过的消息。
 - **网络与线程**：所有网络请求运行在 `Dispatchers.IO` 协程中，UI 更新回到主线程；错误提示全部本地化（服务端 `error` 字段的可读信息优先展示）。
 
 ## 涉及的服务端 API

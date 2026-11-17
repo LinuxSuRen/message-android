@@ -18,11 +18,11 @@ import com.linuxsuren.message.data.ErrorKind
 import com.linuxsuren.message.data.HttpException
 import com.linuxsuren.message.data.LocalMessageState
 import com.linuxsuren.message.data.MessageApi
+import com.linuxsuren.message.data.MessageBus
 import com.linuxsuren.message.data.MessageItem
 import com.linuxsuren.message.data.Settings
-import com.linuxsuren.message.data.SseClient
 import com.linuxsuren.message.databinding.ActivityMessagesBinding
-import com.linuxsuren.message.notification.Notifier
+import com.linuxsuren.message.service.StreamController
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,12 +34,13 @@ import kotlinx.coroutines.withContext
 
 /**
  * Message list: scope filter (all / own tenant / public), manual refresh and
- * a live SSE stream. Incoming `message` events are inserted at the top of
- * the list; in the foreground a light beep plays, in the background a system
- * notification is posted (Android 13+ asks for POST_NOTIFICATIONS once).
+ * a live list fed by [MessageBus] — the SSE stream itself is owned by the
+ * foreground service ([com.linuxsuren.message.service.MessageStreamService]),
+ * so messages keep arriving while the app is backgrounded.
  *
- * The stream job lives in an activity-local scope and is cancelled in
- * onDestroy, per the "no work after leave" rule.
+ * Incoming bus messages are inserted at the top of the list; in the
+ * foreground a light beep plays, in the background the service posts a
+ * system notification (Android 13+ asks for POST_NOTIFICATIONS once).
  */
 class MessagesActivity : Activity() {
 
@@ -51,7 +52,6 @@ class MessagesActivity : Activity() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var loadJob: Job? = null
-    private var sse: SseClient? = null
     private var tone: ToneGenerator? = null
     private var currentScope: String = MessageApi.SCOPE_ALL
     private var authHandled = false
@@ -109,8 +109,46 @@ class MessagesActivity : Activity() {
         binding.streamStatus.text = getString(R.string.sse_connecting)
 
         requestNotificationPermissionIfNeeded()
+        // Ensures the foreground stream service is running (cold start,
+        // return after process death, fresh login, …). Already-running is a
+        // no-op that just re-checks the stored server/session.
+        StreamController.ensureStarted(this)
+        observeBus()
         reload()
-        startStream()
+    }
+
+    /** Subscribes to the service-owned stream: live messages + connection state. */
+    private fun observeBus() {
+        scope.launch {
+            MessageBus.messages.collect { item -> onLiveMessage(item) }
+        }
+        scope.launch {
+            MessageBus.connection.collect { state -> onConnState(state) }
+        }
+    }
+
+    private fun onConnState(state: MessageBus.ConnState) {
+        if (isFinishing || isDestroyed) {
+            return
+        }
+        when (state) {
+            MessageBus.ConnState.Connecting ->
+                binding.streamStatus.text = getString(R.string.sse_connecting)
+
+            MessageBus.ConnState.Connected -> {
+                binding.streamStatus.text = getString(R.string.sse_connected)
+                // 断线重连成功后立即对账：SSE 每条消息只推一次，
+                // 退避窗口内错过的消息需靠重新拉取补齐。
+                reload()
+            }
+
+            is MessageBus.ConnState.Retrying ->
+                binding.streamStatus.text = getString(R.string.sse_reconnecting, state.seconds)
+
+            MessageBus.ConnState.AuthError -> onSessionExpired()
+
+            MessageBus.ConnState.Idle, MessageBus.ConnState.Stopped -> Unit
+        }
     }
 
     override fun onResume() {
@@ -123,7 +161,6 @@ class MessagesActivity : Activity() {
     }
 
     override fun onDestroy() {
-        sse?.stop()
         tone?.release()
         tone = null
         scope.cancel()
@@ -156,48 +193,18 @@ class MessagesActivity : Activity() {
         }
     }
 
-    private fun startStream() {
-        val client = SseClient(api.streamUrl(), object : SseClient.Listener {
-            override fun onSseEvent(name: String, data: String) {
-                // "heartbeat" (and anything unknown) is ignored for the list.
-                runOnUiThread { if (name == SseClient.DEFAULT_EVENT) onLiveMessage(data) }
-            }
-
-            override fun onSseConnected() {
-                runOnUiThread {
-                    binding.streamStatus.text = getString(R.string.sse_connected)
-                    // 断线重连成功后立即对账：SSE 每条消息只推一次，
-                    // 退避窗口内错过的消息需靠重新拉取补齐。
-                    reload()
-                }
-            }
-
-            override fun onSseRetryIn(seconds: Int) {
-                runOnUiThread { binding.streamStatus.text = getString(R.string.sse_reconnecting, seconds) }
-            }
-
-            override fun onSseAuthError() {
-                runOnUiThread { onSessionExpired() }
-            }
-        })
-        sse = client
-        scope.launch { withContext(Dispatchers.IO) { client.run() } }
-    }
-
-    /** A live `message` event arrived: top-insert + beep (foreground) or notify (background). */
-    private fun onLiveMessage(data: String) {
+    /**
+     * A live message arrived via the bus: top-insert; beep in the foreground.
+     * The background system notification is posted by the stream service.
+     */
+    private fun onLiveMessage(item: MessageItem) {
         if (isFinishing || isDestroyed) {
             return
         }
-        val item = MessageApi.parseMessageEvent(data) ?: return
         val inserted = adapter.prepend(item)
         updateEmptyHint()
-        if (inserted) {
-            if (MessageApp.isForeground) {
-                beep()
-            } else {
-                Notifier.notifyMessage(this, item)
-            }
+        if (inserted && MessageApp.isForeground) {
+            beep()
         }
     }
 
@@ -275,16 +282,18 @@ class MessagesActivity : Activity() {
         popup.menuInflater.inflate(R.menu.menu_messages, popup.menu)
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                // Both return to the sign-in screen with the session cleared;
-                // switching servers keeps the remembered account, signing out
-                // forgets it.
+                // Both stop the background stream service and return to the
+                // sign-in screen with the session cleared; switching servers
+                // keeps the remembered account, signing out forgets it.
                 R.id.menu_switch_server -> {
+                    StreamController.stop(this)
                     settings.clearSession()
                     goLogin()
                     true
                 }
 
                 R.id.menu_logout -> {
+                    StreamController.stop(this)
                     settings.forgetAccount()
                     goLogin()
                     true

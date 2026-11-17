@@ -65,5 +65,11 @@
     <!-- Notifications -->
     <string name="notif_channel_name">New messages</string>
     <string name="notif_channel_desc">Notifications for messages received in the background</string>
+    <string name="notif_channel_listening_name">Background listening</string>
+    <string name="notif_channel_listening_desc">The persistent notification that keeps the live connection running in the background</string>
     <string name="notif_default_title">New message</string>
+    <string name="notif_listening_title">Listening for new messages</string>
+    <string name="notif_listening_reconnecting">Connection lost, retrying in %1$d s</string>
+    <string name="notif_auth_expired_title">Session expired</string>
+    <string name="notif_auth_expired_text">Open the app to sign in again and keep receiving messages.</string>
 </resources>

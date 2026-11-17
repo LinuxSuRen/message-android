@@ -42,6 +42,9 @@ class Settings(context: Context) {
             prefs.edit().putString(KEY_SESSION, value.trim()).apply()
         }
 
+    /** True when a stored session exists (cold start / boot auto-start check). */
+    fun hasStoredSession(): Boolean = sessionValue.isNotBlank()
+
     /** Drops the session everywhere: stored value + live CookieManager. */
     fun clearSession() {
         sessionValue = ""
