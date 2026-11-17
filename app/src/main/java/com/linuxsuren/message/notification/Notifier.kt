@@ -16,19 +16,64 @@ import com.linuxsuren.message.ui.MessagesActivity
 /** Posts system notifications for messages that arrive while the app is backgrounded. */
 object Notifier {
 
-    private const val CHANNEL_ID = "messages"
+    const val CHANNEL_MESSAGES = "messages"
+    const val CHANNEL_LISTENING = "listening"
 
-    /** Idempotent; called once from the Application. */
-    fun ensureChannel(context: Context) {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            context.getString(R.string.notif_channel_name),
-            NotificationManager.IMPORTANCE_DEFAULT,
-        ).apply {
-            description = context.getString(R.string.notif_channel_desc)
+    private const val AUTH_NOTIF_ID = 2
+
+    /** Idempotent; called once from the Application and the service. */
+    fun ensureChannels(context: Context) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_MESSAGES,
+                context.getString(R.string.notif_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = context.getString(R.string.notif_channel_desc)
+            },
+        )
+        // The silent, low-importance channel for the persistent "listening"
+        // notification of the foreground service.
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_LISTENING,
+                context.getString(R.string.notif_channel_listening_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = context.getString(R.string.notif_channel_listening_desc)
+                setShowBadge(false)
+            },
+        )
+    }
+
+    /**
+     * "Your session has expired" heads-up for the case where the stream
+     * service dies of a 401 while no activity is around to show a toast.
+     */
+    fun notifyAuthExpired(context: Context) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
         }
+        val intent = Intent(context, MessagesActivity::class.java)
+        val pending = PendingIntent.getActivity(
+            context,
+            AUTH_NOTIF_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = Notification.Builder(context, CHANNEL_MESSAGES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.notif_auth_expired_title))
+            .setContentText(context.getString(R.string.notif_auth_expired_text))
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
         context.getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(channel)
+            .notify(AUTH_NOTIF_ID, notification)
     }
 
     /**
@@ -50,7 +95,7 @@ object Notifier {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = Notification.Builder(context, CHANNEL_ID)
+        val notification = Notification.Builder(context, CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(
                 message.title.ifBlank { context.getString(R.string.notif_default_title) }
