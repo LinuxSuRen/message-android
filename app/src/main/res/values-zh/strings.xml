@@ -33,6 +33,24 @@
     <string name="menu_switch_server">切换服务器</string>
     <string name="menu_logout">退出登录</string>
     <string name="list_empty">暂无消息，可刷新或等待实时推送。</string>
+    <string name="list_empty_filtered">当前已读筛选条件下没有消息。</string>
+
+    <!-- 已读筛选（本地已读记录） -->
+    <string name="read_filter_all">全部</string>
+    <string name="read_filter_unread">未读</string>
+    <string name="read_filter_read">已读</string>
+
+    <!-- 消息详情 -->
+    <string name="detail_title_bar">消息详情</string>
+    <string name="action_close">关闭</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_delete">删除</string>
+    <string name="action_mark_read">标为已读</string>
+    <string name="action_mark_unread">标为未读</string>
+    <string name="confirm_delete_title">删除这条消息？</string>
+    <string name="confirm_delete_body">仅在本设备隐藏该消息，其他设备与服务端不受影响。</string>
+    <string name="msg_deleted">已在本设备删除该消息。</string>
+    <string name="menu_delete">删除</string>
 
     <!-- 实时通道（SSE）状态 -->
     <string name="sse_connecting">正在连接实时通道…</string>
@@ -42,6 +60,7 @@
     <!-- 消息卡片 -->
     <string name="msg_no_title">（无标题）</string>
     <string name="badge_public">公开</string>
+    <string name="badge_unread">未读</string>
 
     <!-- 通知 -->
     <string name="notif_channel_name">新消息</string>
